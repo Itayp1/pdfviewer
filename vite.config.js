@@ -15,4 +15,7 @@ export default defineConfig({
       ]
     })
   ],
+  server: {
+    allowedHosts: ['bc36-93-173-24-133.ngrok-free.app'],
+  },
 })

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -12,9 +12,18 @@ const PDFViewer = ({ pdfUrl }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1.0);
   const [containerWidth, setContainerWidth] = useState(null);
+  const [pinchScale, setPinchScale] = useState(1.0);
+  const [isPinching, setIsPinching] = useState(false);
   const containerRef = useRef(null);
   const pageRefs = useRef({});
   const [isLoading, setIsLoading] = useState(true);
+  const pinchStateRef = useRef({
+    isPinching: false,
+    anchorPage: null,
+    anchorOffsetY: 0,
+    anchorViewportY: 0,
+    finalScale: null,
+  });
 
   // Handle successful document load
   const onDocumentLoadSuccess = ({ numPages }) => {
@@ -47,6 +56,26 @@ const PDFViewer = ({ pdfUrl }) => {
     updateWidth();
     window.addEventListener('resize', updateWidth);
     return () => window.removeEventListener('resize', updateWidth);
+  }, []);
+
+  // Prevent browser viewport zoom on pinch inside the PDF container
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return undefined;
+
+    const preventNativeZoom = (event) => {
+      if (event.touches && event.touches.length > 1) {
+        event.preventDefault();
+      }
+    };
+
+    container.addEventListener('touchstart', preventNativeZoom, { passive: false });
+    container.addEventListener('touchmove', preventNativeZoom, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', preventNativeZoom);
+      container.removeEventListener('touchmove', preventNativeZoom);
+    };
   }, []);
 
   // Intersection Observer to track current page during scroll
@@ -87,36 +116,108 @@ const PDFViewer = ({ pdfUrl }) => {
     setScale(1.0);
   };
 
-  // Touch event handling for pinch-to-zoom
-  const [initialDistance, setInitialDistance] = useState(null);
-  const [initialScale, setInitialScale] = useState(1.0);
+  // Pointer-based pinch-to-zoom (mobile-friendly)
+  const activePointersRef = useRef(new Map());
+  const initialDistanceRef = useRef(null);
+  const initialScaleRef = useRef(1.0);
 
-  const getTouchDistance = (touches) => {
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
+  const getPointerDistance = (p1, p2) => {
+    const dx = p1.x - p2.x;
+    const dy = p1.y - p2.y;
     return Math.sqrt(dx * dx + dy * dy);
   };
 
-  const handleTouchStart = useCallback((e) => {
-    if (e.touches.length === 2) {
-      e.preventDefault();
-      setInitialDistance(getTouchDistance(e.touches));
-      setInitialScale(scale);
+  const getPointerMidpoint = (p1, p2) => ({
+    x: (p1.x + p2.x) / 2,
+    y: (p1.y + p2.y) / 2,
+  });
+
+  const findPageAtY = (screenY) => {
+    const pages = Object.values(pageRefs.current);
+    for (const pageEl of pages) {
+      if (!pageEl) continue;
+      const rect = pageEl.getBoundingClientRect();
+      if (screenY >= rect.top && screenY <= rect.bottom) {
+        return pageEl;
+      }
+    }
+    return null;
+  };
+
+  const handlePointerDown = useCallback((e) => {
+    if (e.pointerType !== 'touch') return;
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    if (activePointersRef.current.size === 2) {
+      const points = Array.from(activePointersRef.current.values());
+      initialDistanceRef.current = getPointerDistance(points[0], points[1]);
+      initialScaleRef.current = scale;
+      setIsPinching(true);
+      setPinchScale(1.0);
+      const midpoint = getPointerMidpoint(points[0], points[1]);
+      const container = containerRef.current;
+      const pageEl = findPageAtY(midpoint.y);
+      if (container && pageEl) {
+        const containerRect = container.getBoundingClientRect();
+        const pageRect = pageEl.getBoundingClientRect();
+        const state = pinchStateRef.current;
+        state.isPinching = true;
+        state.anchorPage = parseInt(pageEl.dataset.pageNumber);
+        state.anchorOffsetY = midpoint.y - pageRect.top;
+        state.anchorViewportY = midpoint.y - containerRect.top;
+      }
     }
   }, [scale]);
 
-  const handleTouchMove = useCallback((e) => {
-    if (e.touches.length === 2 && initialDistance) {
-      e.preventDefault();
-      const currentDistance = getTouchDistance(e.touches);
-      const newScale = initialScale * (currentDistance / initialDistance);
-      setScale(Math.max(0.5, Math.min(3.0, newScale)));
-    }
-  }, [initialDistance, initialScale]);
+  const handlePointerMove = useCallback((e) => {
+    if (e.pointerType !== 'touch') return;
+    if (!activePointersRef.current.has(e.pointerId)) return;
 
-  const handleTouchEnd = useCallback(() => {
-    setInitialDistance(null);
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointersRef.current.size === 2 && initialDistanceRef.current) {
+      e.preventDefault();
+      const points = Array.from(activePointersRef.current.values());
+      const currentDistance = getPointerDistance(points[0], points[1]);
+      const ratio = currentDistance / initialDistanceRef.current;
+      const nextScale = Math.max(0.5, Math.min(3.0, initialScaleRef.current * ratio));
+      pinchStateRef.current.finalScale = nextScale;
+      setPinchScale(nextScale / initialScaleRef.current);
+    }
   }, []);
+
+  const handlePointerUp = useCallback((e) => {
+    if (e.pointerType !== 'touch') return;
+    activePointersRef.current.delete(e.pointerId);
+    if (activePointersRef.current.size < 2) {
+      initialDistanceRef.current = null;
+      const state = pinchStateRef.current;
+      state.isPinching = false;
+      state.anchorPage = null;
+      setIsPinching(false);
+      if (state.finalScale) {
+        setScale(state.finalScale);
+      }
+      state.finalScale = null;
+      setPinchScale(1.0);
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    const state = pinchStateRef.current;
+    if (!state.isPinching || !state.anchorPage) return;
+    const container = containerRef.current;
+    const pageEl = pageRefs.current[state.anchorPage];
+    if (!container || !pageEl) return;
+
+    const rafId = requestAnimationFrame(() => {
+      const nextTop = pageEl.offsetTop + state.anchorOffsetY - state.anchorViewportY;
+      container.scrollTop = Math.max(0, nextTop);
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [scale]);
 
   // Scroll to specific page
   const scrollToPage = (pageNumber) => {
@@ -125,6 +226,8 @@ const PDFViewer = ({ pdfUrl }) => {
       pageRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
+
+  const displayScale = isPinching ? scale * pinchScale : scale;
 
   return (
     <div className="pdf-viewer-container">
@@ -168,7 +271,7 @@ const PDFViewer = ({ pdfUrl }) => {
             >
               −
             </button>
-            <span className="zoom-display">{Math.round(scale * 100)}%</span>
+            <span className="zoom-display">{Math.round(displayScale * 100)}%</span>
             <button
               onClick={zoomIn}
               disabled={scale >= 3.0}
@@ -192,9 +295,10 @@ const PDFViewer = ({ pdfUrl }) => {
       <div
         className="pdf-document-container"
         ref={containerRef}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       >
         {isLoading && (
           <div className="loading-indicator">
@@ -203,40 +307,45 @@ const PDFViewer = ({ pdfUrl }) => {
           </div>
         )}
         
-        <Document
-          file={pdfUrl}
-          onLoadSuccess={onDocumentLoadSuccess}
-          onLoadError={onDocumentLoadError}
-          options={documentOptions}
-          loading={<div className="loading-placeholder">Loading document...</div>}
-          error={<div className="error-message">Failed to load PDF. Please check the URL and try again.</div>}
+        <div
+          className={`pdf-pages ${isPinching ? 'pdf-pages--pinching' : ''}`}
+          style={{ transform: `scale(${pinchScale})` }}
         >
-          {Array.from(new Array(numPages), (el, index) => {
-            const pageNumber = index + 1;
-            return (
-              <div
-                key={`page_${pageNumber}`}
-                ref={(el) => (pageRefs.current[pageNumber] = el)}
-                data-page-number={pageNumber}
-                className="pdf-page-wrapper"
-              >
-                <Page
-                  pageNumber={pageNumber}
-                  scale={scale}
-                  width={containerWidth ? Math.min(containerWidth - 40, 800 * scale) : undefined}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                  loading={
-                    <div className="page-loading">
-                      Loading page {pageNumber}...
-                    </div>
-                  }
-                />
-                <div className="page-number-label">Page {pageNumber}</div>
-              </div>
-            );
-          })}
-        </Document>
+          <Document
+            file={pdfUrl}
+            onLoadSuccess={onDocumentLoadSuccess}
+            onLoadError={onDocumentLoadError}
+            options={documentOptions}
+            loading={<div className="loading-placeholder">Loading document...</div>}
+            error={<div className="error-message">Failed to load PDF. Please check the URL and try again.</div>}
+          >
+            {Array.from(new Array(numPages), (el, index) => {
+              const pageNumber = index + 1;
+              return (
+                <div
+                  key={`page_${pageNumber}`}
+                  ref={(el) => (pageRefs.current[pageNumber] = el)}
+                  data-page-number={pageNumber}
+                  className="pdf-page-wrapper"
+                >
+                  <Page
+                    pageNumber={pageNumber}
+                    scale={scale}
+                    width={containerWidth ? Math.min(containerWidth - 40, 800) : undefined}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                    loading={
+                      <div className="page-loading">
+                        Loading page {pageNumber}...
+                      </div>
+                    }
+                  />
+                  <div className="page-number-label">Page {pageNumber}</div>
+                </div>
+              );
+            })}
+          </Document>
+        </div>
       </div>
     </div>
   );

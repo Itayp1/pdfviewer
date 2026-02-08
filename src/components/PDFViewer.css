@@ -129,10 +129,11 @@
 .pdf-document-container {
   flex: 1;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   background-color: #e8e8e8;
   position: relative;
-  touch-action: pan-y pinch-zoom;
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
 }
 
 .pdf-document-container::-webkit-scrollbar {
@@ -152,6 +153,14 @@
   background: #555;
 }
 
+.pdf-pages {
+  transform-origin: top center;
+}
+
+.pdf-pages--pinching {
+  will-change: transform;
+}
+
 /* PDF Page Wrapper */
 .pdf-page-wrapper {
   display: flex;
@@ -167,8 +176,7 @@
 }
 
 .pdf-page-wrapper canvas {
-  max-width: 100%;
-  height: auto;
+  display: block;
 }
 
 .page-number-label {
@@ -199,8 +207,12 @@
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .loading-placeholder,
