@@ -1,11 +1,11 @@
-import { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
-import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
-import './PDFViewer.css';
+import { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from "react";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+import "./PDFViewer.css";
 
-// Configure PDF.js worker - using copied worker file
-pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+// Configure PDF.js worker - served from the public folder
+pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.mjs`;
 
 const PDFViewer = ({ pdfUrl }) => {
   const [numPages, setNumPages] = useState(null);
@@ -33,17 +33,20 @@ const PDFViewer = ({ pdfUrl }) => {
 
   // Handle document load error
   const onDocumentLoadError = (error) => {
-    console.error('Error loading PDF:', error);
+    console.error("Error loading PDF:", error);
     setIsLoading(false);
   };
 
   // Memoize document options to prevent re-creation
-  const documentOptions = useMemo(() => ({
-    httpHeaders: {
-      'Accept': 'application/pdf',
-    },
-    withCredentials: false,
-  }), []);
+  const documentOptions = useMemo(
+    () => ({
+      httpHeaders: {
+        Accept: "application/pdf",
+      },
+      withCredentials: false,
+    }),
+    [],
+  );
 
   // Update container width on resize
   useEffect(() => {
@@ -54,8 +57,8 @@ const PDFViewer = ({ pdfUrl }) => {
     };
 
     updateWidth();
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
   }, []);
 
   // Prevent browser viewport zoom on pinch inside the PDF container
@@ -69,12 +72,12 @@ const PDFViewer = ({ pdfUrl }) => {
       }
     };
 
-    container.addEventListener('touchstart', preventNativeZoom, { passive: false });
-    container.addEventListener('touchmove', preventNativeZoom, { passive: false });
+    container.addEventListener("touchstart", preventNativeZoom, { passive: false });
+    container.addEventListener("touchmove", preventNativeZoom, { passive: false });
 
     return () => {
-      container.removeEventListener('touchstart', preventNativeZoom);
-      container.removeEventListener('touchmove', preventNativeZoom);
+      container.removeEventListener("touchstart", preventNativeZoom);
+      container.removeEventListener("touchmove", preventNativeZoom);
     };
   }, []);
 
@@ -91,8 +94,8 @@ const PDFViewer = ({ pdfUrl }) => {
       },
       {
         threshold: 0.5,
-        rootMargin: '-50px 0px',
-      }
+        rootMargin: "-50px 0px",
+      },
     );
 
     // Observe all page elements
@@ -144,34 +147,37 @@ const PDFViewer = ({ pdfUrl }) => {
     return null;
   };
 
-  const handlePointerDown = useCallback((e) => {
-    if (e.pointerType !== 'touch') return;
-    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    e.currentTarget.setPointerCapture(e.pointerId);
+  const handlePointerDown = useCallback(
+    (e) => {
+      if (e.pointerType !== "touch") return;
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      e.currentTarget.setPointerCapture(e.pointerId);
 
-    if (activePointersRef.current.size === 2) {
-      const points = Array.from(activePointersRef.current.values());
-      initialDistanceRef.current = getPointerDistance(points[0], points[1]);
-      initialScaleRef.current = scale;
-      setIsPinching(true);
-      setPinchScale(1.0);
-      const midpoint = getPointerMidpoint(points[0], points[1]);
-      const container = containerRef.current;
-      const pageEl = findPageAtY(midpoint.y);
-      if (container && pageEl) {
-        const containerRect = container.getBoundingClientRect();
-        const pageRect = pageEl.getBoundingClientRect();
-        const state = pinchStateRef.current;
-        state.isPinching = true;
-        state.anchorPage = parseInt(pageEl.dataset.pageNumber);
-        state.anchorOffsetY = midpoint.y - pageRect.top;
-        state.anchorViewportY = midpoint.y - containerRect.top;
+      if (activePointersRef.current.size === 2) {
+        const points = Array.from(activePointersRef.current.values());
+        initialDistanceRef.current = getPointerDistance(points[0], points[1]);
+        initialScaleRef.current = scale;
+        setIsPinching(true);
+        setPinchScale(1.0);
+        const midpoint = getPointerMidpoint(points[0], points[1]);
+        const container = containerRef.current;
+        const pageEl = findPageAtY(midpoint.y);
+        if (container && pageEl) {
+          const containerRect = container.getBoundingClientRect();
+          const pageRect = pageEl.getBoundingClientRect();
+          const state = pinchStateRef.current;
+          state.isPinching = true;
+          state.anchorPage = parseInt(pageEl.dataset.pageNumber);
+          state.anchorOffsetY = midpoint.y - pageRect.top;
+          state.anchorViewportY = midpoint.y - containerRect.top;
+        }
       }
-    }
-  }, [scale]);
+    },
+    [scale],
+  );
 
   const handlePointerMove = useCallback((e) => {
-    if (e.pointerType !== 'touch') return;
+    if (e.pointerType !== "touch") return;
     if (!activePointersRef.current.has(e.pointerId)) return;
 
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -188,7 +194,7 @@ const PDFViewer = ({ pdfUrl }) => {
   }, []);
 
   const handlePointerUp = useCallback((e) => {
-    if (e.pointerType !== 'touch') return;
+    if (e.pointerType !== "touch") return;
     activePointersRef.current.delete(e.pointerId);
     if (activePointersRef.current.size < 2) {
       initialDistanceRef.current = null;
@@ -223,7 +229,7 @@ const PDFViewer = ({ pdfUrl }) => {
   const scrollToPage = (pageNumber) => {
     const pageRef = pageRefs.current[pageNumber];
     if (pageRef) {
-      pageRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      pageRef.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 
@@ -236,55 +242,31 @@ const PDFViewer = ({ pdfUrl }) => {
         <div className="pdf-viewer-title">
           <h1>PDF Viewer</h1>
         </div>
-        
+
         <div className="pdf-viewer-controls">
           {/* Page navigation */}
           <div className="page-info">
-            <button
-              onClick={() => scrollToPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage <= 1}
-              className="nav-button"
-              aria-label="Previous page"
-            >
+            <button onClick={() => scrollToPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1} className="nav-button" aria-label="Previous page">
               ←
             </button>
             <span className="page-display">
-              Page {currentPage} of {numPages || '—'}
+              Page {currentPage} of {numPages || "—"}
             </span>
-            <button
-              onClick={() => scrollToPage(Math.min(numPages, currentPage + 1))}
-              disabled={currentPage >= numPages}
-              className="nav-button"
-              aria-label="Next page"
-            >
+            <button onClick={() => scrollToPage(Math.min(numPages, currentPage + 1))} disabled={currentPage >= numPages} className="nav-button" aria-label="Next page">
               →
             </button>
           </div>
 
           {/* Zoom controls */}
           <div className="zoom-controls">
-            <button
-              onClick={zoomOut}
-              disabled={scale <= 0.5}
-              className="zoom-button"
-              aria-label="Zoom out"
-            >
+            <button onClick={zoomOut} disabled={scale <= 0.5} className="zoom-button" aria-label="Zoom out">
               −
             </button>
             <span className="zoom-display">{Math.round(displayScale * 100)}%</span>
-            <button
-              onClick={zoomIn}
-              disabled={scale >= 3.0}
-              className="zoom-button"
-              aria-label="Zoom in"
-            >
+            <button onClick={zoomIn} disabled={scale >= 3.0} className="zoom-button" aria-label="Zoom in">
               +
             </button>
-            <button
-              onClick={resetZoom}
-              className="reset-button"
-              aria-label="Reset zoom"
-            >
+            <button onClick={resetZoom} className="reset-button" aria-label="Reset zoom">
               Reset
             </button>
           </div>
@@ -292,25 +274,15 @@ const PDFViewer = ({ pdfUrl }) => {
       </div>
 
       {/* PDF Document Container */}
-      <div
-        className="pdf-document-container"
-        ref={containerRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-      >
+      <div className="pdf-document-container" ref={containerRef} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp}>
         {isLoading && (
           <div className="loading-indicator">
             <div className="spinner"></div>
             <p>Loading PDF...</p>
           </div>
         )}
-        
-        <div
-          className={`pdf-pages ${isPinching ? 'pdf-pages--pinching' : ''}`}
-          style={{ transform: `scale(${pinchScale})` }}
-        >
+
+        <div className={`pdf-pages ${isPinching ? "pdf-pages--pinching" : ""}`} style={{ transform: `scale(${pinchScale})` }}>
           <Document
             file={pdfUrl}
             onLoadSuccess={onDocumentLoadSuccess}
@@ -322,24 +294,8 @@ const PDFViewer = ({ pdfUrl }) => {
             {Array.from(new Array(numPages), (el, index) => {
               const pageNumber = index + 1;
               return (
-                <div
-                  key={`page_${pageNumber}`}
-                  ref={(el) => (pageRefs.current[pageNumber] = el)}
-                  data-page-number={pageNumber}
-                  className="pdf-page-wrapper"
-                >
-                  <Page
-                    pageNumber={pageNumber}
-                    scale={scale}
-                    width={containerWidth ? Math.min(containerWidth - 40, 800) : undefined}
-                    renderTextLayer={false}
-                    renderAnnotationLayer={false}
-                    loading={
-                      <div className="page-loading">
-                        Loading page {pageNumber}...
-                      </div>
-                    }
-                  />
+                <div key={`page_${pageNumber}`} ref={(el) => (pageRefs.current[pageNumber] = el)} data-page-number={pageNumber} className="pdf-page-wrapper">
+                  <Page pageNumber={pageNumber} scale={scale} width={containerWidth ? Math.min(containerWidth - 40, 800) : undefined} renderTextLayer={false} renderAnnotationLayer={false} loading={<div className="page-loading">Loading page {pageNumber}...</div>} />
                   <div className="page-number-label">Page {pageNumber}</div>
                 </div>
               );
